@@ -1,0 +1,27 @@
+{
+  "discord_bot_token": "<Discord bot token, keep this file chmod 600>",
+  "owner_id": "<your Discord user ID; only your messages are forwarded>",
+  "grok_channel": "<Discord channel ID for Grok Bot, or empty to turn it off>",
+  "instinct_channel": "<Discord channel ID for Instinct (iMessage), or empty>",
+  "pickle_channel": "<Discord channel ID for Pickle, or empty>",
+  "dots_channel": "<Discord channel ID for the ChatGPT dots room, or empty>",
+  "grok_bot_id": "<Grok Bot ID, the last part of the grok.com bot chat URL>",
+  "grok_bot_url": "https://grok.com/bot/<grok_bot_id>",
+  "mail_account": "<zele account name for the Gmail that gets Grok scheduled-task mail, or empty>",
+  "grok_mail_query": "from:<sender address of Grok scheduled-task mail> newer_than:2d",
+  "mail_every_sec": 120,
+  "instinct_handle": "<phone number or Apple ID that Instinct texts you from>",
+  "dots_url": "<URL of the dots room page on chatgpt.com>",
+  "dots_room": "<room ID used in /backend-api/messaging/rooms/<id>/messages>",
+  "dots_member": "<account_user_id of the dots member in that room>",
+  "dots_send_labels": [
+    "보내기",
+    "Send"
+  ],
+  "reply_timeout_min": 10,
+  "end_at": "",
+  "tab_label": "mac-ai-bridge",
+  "launchd_label": "com.example.discord-mac-ai-bridge",
+  "reports_log": "",
+  "bin": {}
+}

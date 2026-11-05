@@ -1,0 +1,14 @@
+{
+  "name": "discord-mac-ai-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bridge": "bun bridge.ts",
+    "keeper": "bun bridge.ts --keeper",
+    "gateway": "bun gateway.ts",
+    "check": "bun build bridge.ts gateway.ts --target=bun --outdir=/tmp/discord-mac-ai-bridge-check"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
