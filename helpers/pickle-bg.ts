@@ -4,12 +4,12 @@
 // and uses its background AX clicks and typing. Your front app, mouse and clipboard are not touched.
 // Optional: if the engine is not installed or anything fails it prints PBERR, and the bridge falls back once to
 // pickle-send / pickle-fetch (which bring the window forward briefly).
-// Usage: bun pickle-bg.ts send [--no-send] [--clear] -        text on stdin, single line only (PBERR multiline otherwise)
+// Usage: bun pickle-bg.ts send [--no-send] [--clear] -        text on stdin; multi-line text is typed with its line breaks
 //        bun pickle-bg.ts fetch --name <file name shown in the bubble> --want <file path to wait for>
 // Output, one line: PBOK ... front=<same|changed> mouse=<same|changed> clip=<same|changed> / PBERR <reason> ...
 // Must run from a process that has Accessibility permission (for example the herdr tab the bridge runs in).
 // Environment: OMO_DESKTOP_ENGINE overrides the engine path.
-// The window and AX names below ("피클", "메시지 보내기", "채팅", "보내기") are Pickle's Korean UI strings.
+// The window and AX names below ("피클", "메시지 보내기", "채팅", "보내기", "뒤로" = Back) are Pickle's Korean UI strings.
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 
@@ -21,6 +21,7 @@ const MAX_LEN = 500;
 const t0 = Date.now();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const squash = (t: string) => t.replace(/\s/g, "");
+const lines = (t: string) => t.replace(/\r\n?/g, "\n").split("\n").length; // line count (squash drops line breaks, so count them separately)
 const size = (p: string) => (existsSync(p) ? statSync(p).size : -1);
 
 let finished = false;
@@ -88,11 +89,24 @@ const TA = '- textarea "메시지 보내기"';
 async function inputRef(win: string): Promise<{ ta: string; tab: string }> {
   let lines = await snapshot(win);
   let ta = refOf(lines, TA), tab = "";
+  // If Pickle is on an inner screen (for example a settings page) there is no chat tab either.
+  // Press "뒤로" (Back) in the background (AX press, no focus change) up to 3 times to get back to the chat screen.
+  let backs = 0;
+  const screen = () => (lines.map((l) => l.trim()).find((l) => /^- button "(?!뒤로)[^"]+"/.test(l))?.match(/"([^"]+)"/)?.[1] ?? "?").slice(0, 20).replace(/\s/g, "_");
+  let firstScreen = "";
+  while (!ta && !refOf(lines, '- radio "채팅"') && backs < 3) {
+    const back = refOf(lines, '- button "뒤로"');
+    if (!back) break;
+    if (!firstScreen) firstScreen = screen();
+    await call("ax.perform", { ref: back, action: "press" }); backs++; await sleep(1000);
+    lines = await snapshot(win); ta = refOf(lines, TA);
+  }
+  if (backs) tab = ` back=${backs}(${firstScreen})`;
   if (!ta) {
     const chat = refOf(lines, '- radio "채팅"');
-    if (chat) { await call("ax.perform", { ref: chat, action: "press" }); await sleep(1200); lines = await snapshot(win); ta = refOf(lines, TA); tab = " tab=chat"; }
+    if (chat) { await call("ax.perform", { ref: chat, action: "press" }); await sleep(1200); lines = await snapshot(win); ta = refOf(lines, TA); tab += " tab=chat"; }
   }
-  if (!ta) done(`PBERR noinput${tab ? " tab=chat-fail" : ""}`, 7);
+  if (!ta) done(`PBERR noinput${tab.includes("tab=chat") ? " tab=chat-fail" : ""}${backs ? ` back=${backs}` : ""} screen=${firstScreen || screen()}`, 7);
   return { ta, tab };
 }
 const valueOf = async (ref: string) => String((await call("ax.node", { ref }))?.value ?? "");
@@ -111,9 +125,8 @@ function sameNote(a: Awaited<ReturnType<typeof probe>>, b: Awaited<ReturnType<ty
 
 async function doSend(args: string[]) {
   const noSend = args.includes("--no-send"), clearOnly = args.includes("--clear");
-  const msg = (await new Response(Bun.stdin.stream()).text()).trim();
+  const msg = (await new Response(Bun.stdin.stream()).text()).replace(/\r\n?/g, "\n").trim();
   if (!msg) done("PBERR notext", 2);
-  if (/\n/.test(msg)) done("PBERR multiline", 2);
   if (msg.length > MAX_LEN) done(`PBERR long len=${msg.length}`, 2);
   const before = await probe();
   await startEngine();
@@ -131,20 +144,22 @@ async function doSend(args: string[]) {
   if (!node?.focused) done("PBERR nofocus", 9);
   await call("ax.typeText", { ref: ta, text: msg, opts: {} });
   let typed = "";
-  for (let i = 0; i < 20; i++) { typed = await valueOf(ta); if (squash(typed) === squash(msg)) break; await sleep(100); }
-  if (squash(typed) !== squash(msg)) {
+  const same = (v: string) => squash(v) === squash(msg) && lines(v.trim()) === lines(msg);
+  for (let i = 0; i < 20; i++) { typed = await valueOf(ta); if (same(typed)) break; await sleep(100); }
+  if (!same(typed)) {
     const wiped = squash(typed) ? await wipe(win, ta) : true;
-    done(`PBERR typed-mismatch got=${typed.length} want=${msg.length} wiped=${wiped}`, 9);
+    done(`PBERR typed-mismatch got=${typed.length}/${lines(typed.trim())}lines want=${msg.length}/${lines(msg)}lines wiped=${wiped}`, 9);
   }
   const typedNote = sameNote(before, await probe());
-  if (noSend) done(`PBOK typed-only ms=${Date.now() - t0} ${typedNote}${tab}`);
+  const ln = lines(msg) > 1 ? ` lines=${lines(msg)}` : "";
+  if (noSend) done(`PBOK typed-only ms=${Date.now() - t0}${ln} ${typedNote}${tab}`);
   const sendBtn = refOf(await snapshot(win), '- button "보내기"');
   if (!sendBtn) { const wiped = await wipe(win, ta); done(`PBERR nosendbutton wiped=${wiped}`, 10); }
   await call("ax.perform", { ref: sendBtn, action: "press" });
   for (let i = 0; i < 30; i++) {
     const lines = await snapshot(win);
     const v = refOf(lines, TA) ? await valueOf(refOf(lines, TA)!) : "";
-    if (!squash(v) && !refOf(lines, '- button "보내기"')) done(`PBOK sent ms=${Date.now() - t0} ${sameNote(before, await probe())}${tab}`);
+    if (!squash(v) && !refOf(lines, '- button "보내기"')) done(`PBOK sent ms=${Date.now() - t0}${ln} ${sameNote(before, await probe())}${tab}`);
     await sleep(100);
   }
   done("PBERR enter-not-sent", 10);

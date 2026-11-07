@@ -721,7 +721,11 @@ async function pollPickle(st: State) {
 const PSERR: Record<string, string> = {
   busy: "you kept using the Mac for 90 seconds, so the Pickle window was not brought up",
   notrunning: "the Pickle app is not running",
-  noinput: "the Pickle window is closed or not on the chat screen",
+  noinput: "the Pickle window is open but not on the chat screen, so the input box was not found",
+  nowindow: "the Pickle window is closed",
+  nofocus: "the Pickle input box was clicked but would not take text",
+  nosendbutton: "the Pickle Send button is not visible",
+  long: "the message is too long (over 500 characters)",
   draft: "the Pickle input box has a draft, so it was left alone",
   noax: "no Accessibility permission to control Pickle",
   activate: "could not bring the Pickle window forward",
@@ -733,6 +737,7 @@ async function sendPickle(text: string, files: string[] = []) {
   pickleBridgeSent.set(squash(text), Date.now());
   if ((await run(["/usr/bin/pgrep", "-x", "Pickle"])).code !== 0) { await run(["/usr/bin/open", "-g", "-b", "com.pickle.client"]); log("opened Pickle app"); await sleep(6000); }
   const before = pickleMax();
+  let bgWhy = ""; // why the background send failed, so a fallback failure reports both reasons
   if (!files.length) {
     const bg = Bun.spawn([BUN, PICKLE_BG, "send", "-"], { stdin: new Blob([text]), stdout: "pipe", stderr: "pipe" });
     const tb = setTimeout(() => bg.kill(), 180_000);
@@ -740,13 +745,20 @@ async function sendPickle(text: string, files: string[] = []) {
     log("pickle-bg send", bgLine || "(no answer)");
     if (bgLine.startsWith("PBOK")) return await pickleConfirm(before, text, files, bgLine);
     if (/^PBERR (enter-not-sent|timeout)/.test(bgLine) || /wiped=false/.test(bgLine)) throw new Error(PSERR[bgLine.replace(/^PBERR\s*/, "").split(" ")[0]] ?? `sending to Pickle stopped halfway (${bgLine.slice(0, 80)}), check the Pickle input box`);
+    const bk = bgLine.replace(/^PBERR\s*/, "").split(" ")[0];
+    const scr = bgLine.match(/screen=(\S+)/)?.[1];
+    bgWhy = `${PSERR[bk] ?? (bgLine.slice(0, 60) || "no answer")}${scr && scr !== "?" ? ` · screen now: ${scr.replace(/_/g, " ")}` : ""}`;
   }
   const p = Bun.spawn([PICKLE_SEND, ...files.flatMap((f) => ["--file", f]), "-"], { stdin: new Blob([text]), stdout: "pipe", stderr: "pipe" });
   const t = setTimeout(() => p.kill(), 150_000);
   const out = (await new Response(p.stdout).text()).trim(); await p.exited; clearTimeout(t);
   const line = out.split("\n").pop() ?? "";
   log("pickle-send", line);
-  if (!line.startsWith("PSOK")) { const k = line.replace(/^PSERR\s*/, "").split(" ")[0]; throw new Error(PSERR[k] ?? `could not send to Pickle (${line.slice(0, 80) || "no answer"})`); }
+  if (!line.startsWith("PSOK")) {
+    const k = line.replace(/^PSERR\s*/, "").split(" ")[0];
+    const why = PSERR[k] ?? `could not send to Pickle (${line.slice(0, 80) || "no answer"})`;
+    throw new Error(bgWhy && bgWhy !== why ? `${why} (background send: ${bgWhy})` : why);
+  }
   if (line.includes("restore=FAIL")) report("warning · could not restore your front window after sending to Pickle");
   return await pickleConfirm(before, text, files, line);
 }

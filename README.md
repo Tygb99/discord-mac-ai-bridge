@@ -32,7 +32,7 @@ Discord ──gateway.ts──▶ inbox.jsonl ──▶ bridge.ts (in a herdr ta
 - `bridge.ts` reads the inbox every 3 seconds, sends each message to the right app, and polls the apps for replies.
 - `bridge.ts --keeper` runs every minute from a LaunchAgent. If the bridge heartbeat is older than 90 seconds it reopens the bridge in a herdr tab.
   The bridge runs inside a herdr tab, not directly under launchd, because reading `chat.db` and the app containers needs Full Disk Access and the Pickle helpers need Accessibility. A terminal app can hold those permissions.
-- `helpers/pickle-bg.ts` (optional) sends to Pickle and fetches attachments fully in the background, through the OmO desktop engine that OmO's computer-use tool uses. Nothing comes to the front. If the engine is not installed or it fails, the bridge falls back once to the two Swift helpers below.
+- `helpers/pickle-bg.ts` (optional) sends to Pickle and fetches attachments fully in the background, through the OmO desktop engine that OmO's computer-use tool uses. Nothing comes to the front. If the engine is not installed or it fails, the bridge falls back once to the two Swift helpers below. Multi-line messages keep their line breaks. If Pickle is on an inner screen (for example settings), it presses Back to return to the chat screen, and a failure is reported with its actual reason (window closed, not on the chat screen, too long, and so on).
 - `helpers/pickle-send` types into Pickle. Pickle ignores background key events and AX value setting, so the helper waits until you have not touched the keyboard or mouse for 2 seconds, brings Pickle forward for about 1 to 2 seconds to paste, then restores your previous app, window and clipboard. It presses Send in the background.
 - `helpers/pickle-fetch` gets an attachment that arrived from another device. It clicks the attachment bubble so the Pickle app downloads it itself. The bridge never reads Pickle's login token and never calls Pickle's servers.
 
@@ -108,7 +108,7 @@ Logs: `~/.config/discord-mac-ai-bridge/bridge.log` and `~/Library/Logs/discord-m
 ## Limits
 
 - macOS only, one user, one Mac. The bridge controls apps on the Mac it runs on.
-- Without the OmO desktop engine, or for messages with files or several lines, Pickle briefly comes to the front (about 1 to 2 seconds) for each message and for each attachment it has to download. The helper waits for a 2-second pause in your typing and restores your window, clipboard and mouse position, but you will see it.
+- Without the OmO desktop engine, or for messages with files, Pickle briefly comes to the front (about 1 to 2 seconds) for each message and for each attachment it has to download. The helper waits for a 2-second pause in your typing and restores your window, clipboard and mouse position, but you will see it.
 - The UI labels the helpers and the dots sender look for (`메시지 보내기`, `보내기`, `채팅` and so on) are the apps' **Korean** UI strings. If your apps run in another language, change them in `helpers/*.swift` and `dots_send_labels`.
 - Grok Bot and dots are driven through their web pages, and Grok Bot replies are read from the Mac app's local files. Any change to those pages or file formats can break the bridge until the code is updated.
 - dots messages are read with the same web requests the chatgpt.com page itself makes, inside your logged-in tab.
